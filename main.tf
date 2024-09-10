@@ -4,7 +4,7 @@ resource "proxmox_virtual_environment_vm" "node" {
   count = var.cluster_spec.component_size
   tags  = var.resource_tags
 
-  node_name = var.provider_proxmox.node
+  node_name = var.cluster_spec.node
   template  = local.cloning.create_template
 
   #--> Singular Parameters
