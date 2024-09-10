@@ -1,9 +1,11 @@
 output "server_name" {
-  value = flatten(proxmox_virtual_environment_vm.node[*].name)
+  description = "Flattened version of output `name`"
+  value       = flatten(proxmox_virtual_environment_vm.node[*].name)
 }
 
 output "server_ipv4" {
-  value = flatten(proxmox_virtual_environment_vm.node[*].ipv4_addresses[1])
+  description = "Flattened version of output `ipv4`"
+  value       = flatten(proxmox_virtual_environment_vm.node[*].ipv4_addresses[1])
 
 }
 

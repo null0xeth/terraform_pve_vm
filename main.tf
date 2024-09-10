@@ -1,123 +1,113 @@
 resource "proxmox_virtual_environment_vm" "node" {
-  name  = format("%s0%d", var.cluster_spec.base_name, count.index + 1)
-  vm_id = (var.cluster_spec.base_id + count.index)
-  count = var.cluster_spec.component_size
-  tags  = var.resource_tags
-
-  node_name = var.cluster_spec.node
-  template  = local.cloning.create_template
-
-  #--> Singular Parameters
-  bios            = local.machine.bios
-  boot_order      = local.machine.boot_order
-  stop_on_destroy = local.general.stop_on_destroy
-  machine         = local.machine.machine
-  migrate         = local.general.migrate
-  on_boot         = local.general.on_boot
-  reboot          = local.general.reboot
-  scsi_hardware   = local.hardware.scsi_type
-  started         = local.general.started
+  bios            = var.common_vm_config.bios
+  boot_order      = var.common_vm_config.boot_order
+  count           = var.cluster_spec.component_size
+  machine         = var.common_vm_config.machine_type
+  migrate         = var.common_vm_config.migrate
+  name            = format("%s0%d", var.cluster_spec.base_name, count.index + 1)
+  node_name       = var.cluster_spec.node
+  on_boot         = var.common_vm_config.on_boot
+  reboot          = var.common_vm_config.reboot
+  scsi_hardware   = var.common_vm_config.scsi_type
+  started         = var.common_vm_config.started
+  stop_on_destroy = var.common_vm_config.stop_on_destroy
+  tags            = var.resource_tags
+  template        = var.common_vm_config.create_template
+  vm_id           = (var.cluster_spec.base_id + count.index)
 
   agent {
-    enabled = local.general.agent
+    enabled = var.common_vm_config.enable_agent
   }
 
-  cpu {
-    architecture = local.hardware.cpu_arch
-    cores        = var.cluster_spec.config.cpu_cores
-    type         = local.hardware.cpu_type
-  }
-
-  # Cloning
   dynamic "clone" {
-    for_each = local.cloning.clone_template == false ? [] : list(local.cloning)
+    for_each = var.common_vm_config.clone_template == false ? [] : list(local.cloning)
 
     content {
       datastore_id = "local-zfs"
-      node_name    = var.provider_proxmox.node
+      node_name    = var.provider_proxmox.pve_node
       vm_id        = clone.clone_from_id
     }
   }
 
-  # VM disks
+  cpu {
+    architecture = var.common_vm_config.cpu_arch
+    cores        = var.cluster_spec.config.cpu_cores
+    type         = var.common_vm_config.cpu_type
+    units        = (var.cluster_spec.config.cpu_cores * 1024)
+    flags        = var.common_vm_config.cpu_flags
+  }
+
   dynamic "disk" {
     for_each = var.cluster_spec.config.disks == null ? {} : var.cluster_spec.config.disks
     content {
-      aio          = local.disks.aio
-      iothread     = local.disks.iothread
-      backup       = local.disks.backup
-      cache        = local.disks.cache
+      aio          = var.common_vm_config.disk_aio
+      backup       = var.common_vm_config.disk_backup
+      cache        = var.common_vm_config.disk_cache
       datastore_id = disk.value.datastore_id
-      discard      = local.disks.discard
-      file_format  = local.disks.file_format
+      discard      = var.common_vm_config.disk_discard
+      file_format  = var.common_vm_config.disk_file_format
       file_id      = disk.value.file_id
+      iothread     = var.common_vm_config.disk_iothread
       interface    = disk.value.interface
       size         = disk.value.size
       ssd          = disk.value.ssd
     }
   }
-  # EFI disks
+
   efi_disk {
-    datastore_id      = local.efi_disk.datastore_id
-    file_format       = local.efi_disk.file_format
-    type              = local.efi_disk.type
-    pre_enrolled_keys = local.efi_disk.pre_enrolled_keys
+    datastore_id      = var.common_vm_config.efi_datastore_id
+    file_format       = var.common_vm_config.efi_file_format
+    type              = var.common_vm_config.efi_type
+    pre_enrolled_keys = var.common_vm_config.efi_pre_enrolled_keys
   }
 
-  # Serial device
-  serial_device {
-    device = local.machine.serial_device
-  }
-
-  #--> Cloud Init
   initialization {
-    #-> Cloud init configuration
-    type                = local.initialization.type
+    datastore_id        = var.common_vm_config.ci_datastore_id
+    interface           = var.common_vm_config.ci_interface
+    type                = var.common_vm_config.type
     vendor_data_file_id = var.cloud_init_id
-    datastore_id        = local.initialization.ci_datastore
-    interface           = local.initialization.ci_interface
 
-    user_account {
-      password = var.auth_bundle.password
-      username = var.auth_bundle.username
-      keys     = var.auth_bundle.ssh_keys
-    }
-
-    #-> ipconfig0
     dynamic "ip_config" {
-      for_each = local.networks == null ? [{}] : local.networks
+      for_each = var.common_vm_config.common_networks == null ? [{}] : var.common_vm_config.common_networks
       content {
         ipv4 {
           address = "dhcp"
         }
       }
     }
+
+    user_account {
+      keys     = var.auth_bundle.ssh_keys
+      password = var.auth_bundle.password
+      username = var.auth_bundle.username
+    }
   }
-  # VM Memory
+
   memory {
     dedicated = var.cluster_spec.config.memory
   }
 
-  # Network interfaces
   dynamic "network_device" {
-    for_each = local.networks == null ? [{}] : local.networks
+    for_each = var.common_vm_config.common_networks == null ? [{}] : var.common_vm_config.common_networks
     content {
       bridge  = network_device.value["bridge"]
       model   = network_device.value["model"]
-      vlan_id = network_device.value["vlan_id"]
       mtu     = network_device.value["mtu"]
+      vlan_id = network_device.value["vlan_id"]
     }
   }
 
-  # Guest OS config
   operating_system {
-    type = local.machine.operating_system_type
+    type = var.common_vm_config.os_type
   }
 
-  # Display config
+  serial_device {
+    device = var.common_vm_config.machine_serial_device
+  }
+
   vga {
-    memory = local.vga.memory
-    type   = local.vga.type
+    memory = var.common_vm_config.vga_memory
+    type   = var.common_vm_config.vga_type
   }
 }
 
